@@ -1,75 +1,132 @@
 // =====================================================================
-// AGENT BACKROOM — Newsletter Signup Endpoint
-// Google Apps Script — paste into a Google Sheet's Apps Script editor
+// AGENT BACKROOM — Newsletter Signup Endpoint v2 (Phase 2)
+// Google Apps Script — paste into the same Sheet's Apps Script editor
 // =====================================================================
 //
-// SETUP INSTRUCTIONS:
-// 1. Go to sheets.google.com and create a new blank Sheet
-// 2. Name it: "Agent Backroom Newsletter"
-// 3. Add these column headers in row 1:
-//    A1: Timestamp    B1: Email    C1: Source    D1: Welcomed
-// 4. Click Extensions > Apps Script
-// 5. Delete any existing code, paste this entire file
-// 6. Click Save (disk icon)
-// 7. Click Deploy > New deployment
-// 8. Click the gear icon > Web app
-// 9. Settings:
-//    - Description: "Newsletter Signup"
-//    - Execute as: Me
-//    - Who has access: Anyone
-// 10. Click Deploy
-// 11. Authorize when prompted (ignore the "unsafe" warning - it's your own script)
-// 12. Copy the Web App URL — it looks like:
-//     https://script.google.com/macros/s/AKfycb.../exec
-// 13. Send that URL to Claude and it'll wire it into the site
+// V2 ADDS:
+// - GET ?action=list&since=N — return rows starting at index N (for autoresponder polling)
+// - GET ?action=unwelcomed   — return all rows where Welcomed=no (compact form)
+// - POST ?action=mark_welcomed&email=... — mark a row as welcomed
+//
+// SETUP:
+// 1. Open the Sheet → Extensions → Apps Script
+// 2. REPLACE the existing code with this entire file
+// 3. Click Save
+// 4. Click Deploy → Manage deployments
+// 5. Click the pencil (edit) icon on the existing Web App
+// 6. Change Version to "New version", description "v2 — list + mark"
+// 7. Click Deploy
+// 8. The URL stays the same — no need to update the site
 // =====================================================================
+
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var action = (e.parameter.action || '').toString();
+
+  // Default: just return count
+  if (!action) {
+    var count = Math.max(0, sheet.getLastRow() - 1);
+    return jsonResponse({ ok: true, count: count });
+  }
+
+  if (action === 'list') {
+    var since = parseInt(e.parameter.since || '0', 10) || 0;
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var rows = data.slice(1 + since); // skip header + offset
+    var out = rows.map(function(r, i) {
+      var record = {};
+      headers.forEach(function(h, idx) { record[h] = r[idx]; });
+      record._index = since + i;
+      return record;
+    });
+    return jsonResponse({ ok: true, count: out.length, rows: out });
+  }
+
+  if (action === 'unwelcomed') {
+    var data2 = sheet.getDataRange().getValues();
+    var headers2 = data2[0];
+    var welcomedCol = headers2.indexOf('Welcomed');
+    var emailCol = headers2.indexOf('Email');
+    if (welcomedCol === -1 || emailCol === -1) {
+      return jsonResponse({ ok: false, error: 'missing_columns' });
+    }
+    var unwelcomed = [];
+    for (var i = 1; i < data2.length; i++) {
+      var w = (data2[i][welcomedCol] || '').toString().toLowerCase();
+      if (w !== 'yes') {
+        unwelcomed.push({
+          row: i + 1,
+          email: data2[i][emailCol],
+          timestamp: data2[i][0],
+          source: data2[i][2] || 'website'
+        });
+      }
+    }
+    return jsonResponse({ ok: true, count: unwelcomed.length, rows: unwelcomed });
+  }
+
+  return jsonResponse({ ok: false, error: 'unknown_action' });
+}
 
 function doPost(e) {
   try {
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-    var email = (e.parameter.email || '').toString().trim().toLowerCase();
-    var source = e.parameter.source || 'website';
+    var action = (e.parameter.action || '').toString();
 
-    // Validate email
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return ContentService
-        .createTextOutput(JSON.stringify({ ok: false, error: 'invalid_email' }))
-        .setMimeType(ContentService.MimeType.JSON);
+    // Mark welcomed action (used by autoresponder)
+    if (action === 'mark_welcomed') {
+      var email = (e.parameter.email || '').toString().trim().toLowerCase();
+      if (!email) return jsonResponse({ ok: false, error: 'missing_email' });
+
+      var data = sheet.getDataRange().getValues();
+      var headers = data[0];
+      var welcomedCol = headers.indexOf('Welcomed');
+      var emailCol = headers.indexOf('Email');
+      if (welcomedCol === -1 || emailCol === -1) {
+        return jsonResponse({ ok: false, error: 'missing_columns' });
+      }
+
+      for (var i = 1; i < data.length; i++) {
+        var rowEmail = (data[i][emailCol] || '').toString().toLowerCase();
+        if (rowEmail === email) {
+          sheet.getRange(i + 1, welcomedCol + 1).setValue('yes');
+          return jsonResponse({ ok: true, status: 'marked', row: i + 1 });
+        }
+      }
+      return jsonResponse({ ok: false, error: 'email_not_found' });
     }
 
-    // Check for duplicate
-    var data = sheet.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][1] && data[i][1].toString().toLowerCase() === email) {
-        return ContentService
-          .createTextOutput(JSON.stringify({ ok: true, status: 'already_subscribed' }))
-          .setMimeType(ContentService.MimeType.JSON);
+    // Default: signup action (from website form)
+    var newEmail = (e.parameter.email || '').toString().trim().toLowerCase();
+    var source = e.parameter.source || 'website';
+
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return jsonResponse({ ok: false, error: 'invalid_email' });
+    }
+
+    var existing = sheet.getDataRange().getValues();
+    for (var j = 1; j < existing.length; j++) {
+      if (existing[j][1] && existing[j][1].toString().toLowerCase() === newEmail) {
+        return jsonResponse({ ok: true, status: 'already_subscribed' });
       }
     }
 
-    // Add new row
     sheet.appendRow([
       new Date().toISOString(),
-      email,
+      newEmail,
       source,
-      'no'  // welcomed flag — autoresponder cron will flip to "yes"
+      'no'
     ]);
 
-    return ContentService
-      .createTextOutput(JSON.stringify({ ok: true, status: 'subscribed' }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse({ ok: true, status: 'subscribed' });
   } catch (err) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ ok: false, error: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse({ ok: false, error: err.toString() });
   }
 }
 
-function doGet(e) {
-  // Optional: return subscriber count for embedding on the site
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var count = sheet.getLastRow() - 1; // minus header row
+function jsonResponse(obj) {
   return ContentService
-    .createTextOutput(JSON.stringify({ ok: true, count: count }))
+    .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
