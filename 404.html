@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 — Agent Backroom</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .err {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 40px 24px;
+    }
+    .err-code {
+      font-family: var(--font-display);
+      font-size: clamp(80px, 15vw, 160px);
+      font-weight: 900;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--gold), var(--gold-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .err h1 { font-family: var(--font-display); font-size: 32px; margin: 16px 0 12px; }
+    .err p { color: var(--text-muted); max-width: 480px; margin-bottom: 32px; }
+  </style>
+</head>
+<body>
+  <section class="err">
+    <div class="err-code">404</div>
+    <h1>This page hasn&rsquo;t gone live yet.</h1>
+    <p>The page you&rsquo;re looking for doesn&rsquo;t exist. Head back to the Backroom.</p>
+    <a href="/" class="btn btn-primary btn-lg">Back to Home</a>
+  </section>
+</body>
+</html>
